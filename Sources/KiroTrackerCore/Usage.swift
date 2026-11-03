@@ -20,7 +20,7 @@ public struct UsageSnapshot: Sendable {
         return min(1, overage / overageLimit)
     }
     public var percentage: String {
-        // Never report 100% until the included allowance really is exhausted.
+        // Round down until all included credits are used.
         let value = fraction >= 1 ? 100 : floor(fraction * 100)
         return "\(Int(value))%"
     }
@@ -42,16 +42,17 @@ public struct UsageSnapshot: Sendable {
         }
         let overage = credit.currentOveragesWithPrecision ?? credit.currentOverages ?? max(0, total - limit)
         guard overage.isFinite, overage >= 0, overage <= total else { throw TrackerError.invalidUsage }
-        // Kiro's total includes overage. Keep the two gauges disjoint.
+        // Subtract overage so the main bar only shows included credits.
         let planUsed = max(0, total - overage)
         guard planUsed <= limit + 0.01 else { throw TrackerError.invalidUsage }
-        // Bonus spend is ambiguous in this private API. Do not silently show it as plan usage.
+        // The API does not clearly separate bonus credits from plan usage.
         guard (credit.bonuses ?? []).isEmpty else { throw TrackerError.bonusUnsupported }
         let cap = credit.overageCapWithPrecision ?? credit.overageCap
         let reset = credit.nextDateReset ?? response.nextDateReset
         if let reset, !reset.isFinite || !(946684800...4102444800).contains(reset) {
             throw TrackerError.invalidUsage
         }
+        // Keep unexpected server text from changing the dropdown layout.
         let rawPlan = response.subscriptionInfo?.subscriptionTitle ?? "Kiro"
         let safePlan = rawPlan.unicodeScalars.contains {
             [.control, .format, .lineSeparator, .paragraphSeparator].contains($0.properties.generalCategory)

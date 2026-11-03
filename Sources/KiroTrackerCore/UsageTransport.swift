@@ -1,6 +1,6 @@
 import Foundation
 
-// Stateless delegate: no request, token, response body, or error is ever logged.
+// Refuse redirects so credentials stay on the original host.
 final class RejectRedirects: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     willPerformHTTPRedirection response: HTTPURLResponse,
@@ -16,6 +16,7 @@ struct UsageTransport: Sendable {
     private let redirects = RejectRedirects()
 
     static func configuration() -> URLSessionConfiguration {
+        // Keep cookies and credentials out of persistent storage.
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 15
         configuration.timeoutIntervalForResource = 20
@@ -29,12 +30,12 @@ struct UsageTransport: Sendable {
     }
 
     init() { session = URLSession(configuration: Self.configuration()) }
-    // Only used by tests to supply an in-process URLProtocol with fake credentials.
+    // Let tests supply a session with fake responses.
     init(session: URLSession) { self.session = session }
 
     func fetch(_ request: URLRequest) async throws -> Data {
         let (bytes, response) = try await session.bytes(for: request, delegate: redirects)
-        // Cancel immediately on rejected status, oversized bodies, or consumer cancellation.
+        // Close the request when reading finishes or fails.
         defer { bytes.task.cancel() }
         guard let response = response as? HTTPURLResponse else { throw TrackerError.invalidUsage }
         if response.statusCode == 401 || response.statusCode == 403 { throw TrackerError.sessionExpired }
@@ -42,6 +43,7 @@ struct UsageTransport: Sendable {
         guard response.expectedContentLength <= Self.maximumResponseBytes else { throw TrackerError.invalidUsage }
         var data = Data()
         data.reserveCapacity(min(Self.maximumResponseBytes, max(0, Int(response.expectedContentLength))))
+        // Limit the body even when the server does not provide its size.
         for try await byte in bytes {
             try Task.checkCancellation()
             guard data.count < Self.maximumResponseBytes else { throw TrackerError.invalidUsage }

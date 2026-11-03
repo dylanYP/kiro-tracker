@@ -11,14 +11,14 @@ public actor KiroClient {
 
     public func fetch() async throws -> UsageSnapshot {
         try Task.checkCancellation()
-        // Re-read each time so the CLI remains the sole owner of login and token renewal.
+        // Pick up any token changes made by Kiro CLI.
         let credentials = try CredentialStore.read(from: databaseURL ?? DatabaseLocation.resolve())
         let request = try Self.request(token: credentials.accessToken, profileARN: credentials.profileARN)
         return try UsageSnapshot.decode(await transport.fetch(request))
     }
 
     static func request(token: String, profileARN: String) throws -> URLRequest {
-        // No user-controlled hostname, port, path, or URL is accepted.
+        // Only send credentials to the supported Kiro regions.
         guard profileARN.utf8.count <= 256,
               profileARN.range(of: #"\Aarn:aws:codewhisperer:(us-east-1|eu-central-1):[0-9]{12}:profile/[A-Za-z0-9_-]{1,128}\z"#,
                                options: .regularExpression) != nil else { throw TrackerError.unsupportedRegion }

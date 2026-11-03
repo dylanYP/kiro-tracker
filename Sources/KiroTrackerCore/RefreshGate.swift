@@ -1,6 +1,6 @@
 import Foundation
 
-/// A monotonic clock prevents wall-clock changes from breaking request throttling.
+// Keep the cooldown steady even if the system clock changes.
 public struct RefreshGate: Sendable {
     private var lastAttempt: ContinuousClock.Instant?
     public init() {}

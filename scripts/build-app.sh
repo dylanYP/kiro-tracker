@@ -11,7 +11,7 @@ if [[ "${BUILD_UNIVERSAL:-0}" == "1" ]]; then
 fi
 swift build "${build_arguments[@]}"
 binary_directory=$(swift build "${build_arguments[@]}" --show-bin-path)
-# Always assemble a fresh bundle so stale files cannot hitchhike into a release.
+# Start with a clean bundle to leave out old build files.
 mkdir -p dist
 staging=$(mktemp -d "$PWD/dist/.bundle.XXXXXX")
 trap 'rm -rf "$staging"' EXIT

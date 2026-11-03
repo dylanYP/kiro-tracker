@@ -57,7 +57,7 @@ struct TrackerView: View {
                             Text("of \(UsageSnapshot.credits(usage.overageLimit!)) overage credits")
                                 .font(.system(size: 11)).foregroundStyle(.secondary)
                         } else {
-                            // A solid marker, not a fabricated percentage when Kiro omits a cap.
+                            // Show the count without a percentage when the cap is missing.
                             Capsule().fill(Color.blue).frame(width: 20, height: 6)
                             Text("No overage limit reported")
                                 .font(.system(size: 11)).foregroundStyle(.secondary)

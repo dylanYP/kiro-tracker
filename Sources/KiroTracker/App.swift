@@ -12,6 +12,7 @@ final class TrackerModel: ObservableObject {
     private var refreshGate = RefreshGate()
 
     func refresh() async {
+        // Skip repeated clicks while a request or cooldown is active.
         guard !refreshing, refreshGate.begin() else { return }
         refreshing = true
         defer { refreshing = false; onChange?() }
@@ -19,6 +20,7 @@ final class TrackerModel: ObservableObject {
             snapshot = try await client.fetch()
             error = nil
         } catch {
+            // Clear old usage if the account is no longer available.
             if let failure = error as? TrackerError {
                 switch failure {
                 case .notSignedIn, .sessionExpired, .unsupportedRegion, .invalidDatabasePath: snapshot = nil
@@ -49,11 +51,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         item.button?.action = #selector(togglePopover)
         popover.behavior = .transient
         popover.delegate = self
-        // AppKit's animation ends at its default placement, which is lower than
-        // our menu-bar anchor. Present and align synchronously before drawing.
+        // Skip the animation so the dropdown opens at its final position.
         popover.animates = false
         model.onChange = { [weak self] in self?.updateStatus() }
         updateStatus()
+        // Allow some timing slack so macOS can group background work.
         polling = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.model.refresh()
@@ -112,12 +114,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         alignPopover()
-        // Opening the panel rechecks usage; never starts another request while one is running.
+        // Check for new usage when the dropdown opens.
         Task { await model.refresh() }
     }
 
     func popoverDidClose(_ notification: Notification) {
-        // Release the SwiftUI tree; hidden UI must not keep timers or animations alive.
+        // Free the dropdown view when it closes.
         popover.contentViewController = nil
     }
 
@@ -125,8 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard let button = item.button, let statusWindow = button.window,
               let window = popover.contentViewController?.view.window else { return }
         let anchor = statusWindow.convertToScreen(button.convert(button.bounds, to: nil))
-        // Anchor to the actual menu-bar button, independent of AppKit's initial
-        // SwiftUI sizing/placement. Keep a small, consistent gap below the menu bar.
+        // Keep the dropdown four points below the menu bar.
         window.setFrameTopLeftPoint(NSPoint(x: window.frame.minX, y: anchor.minY - 4))
     }
 
@@ -157,7 +158,7 @@ enum KiroTrackerMain {
             return
         }
         #endif
-        // A diagnostic path for validating real auth/networking without logging credentials.
+        // Check live usage without opening the app.
         if CommandLine.arguments.contains("--check") {
             do {
                 let usage = try await KiroClient().fetch()

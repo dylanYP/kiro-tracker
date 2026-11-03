@@ -9,6 +9,7 @@ struct Credentials {
 enum CredentialStore {
     static func read(from url: URL) throws -> Credentials {
         let resolved = url.resolvingSymlinksInPath()
+        // Reject pipes and devices before SQLite tries to open them.
         guard (try? resolved.resourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true else {
             throw TrackerError.notSignedIn
         }
@@ -18,13 +19,13 @@ enum CredentialStore {
             throw TrackerError.notSignedIn
         }
         defer { sqlite3_close(database) }
-        // Be a cheap, read-only guest in Kiro's database, even if its schema is corrupt.
+        // Keep database reads small and avoid waiting on the CLI.
         sqlite3_busy_timeout(database, 100)
         sqlite3_limit(database, SQLITE_LIMIT_LENGTH, 64 * 1024)
         sqlite3_limit(database, SQLITE_LIMIT_SQL_LENGTH, 1024)
-        // Apple's SQLite does not expose extension loading; never enable it.
-        // Prevent malicious views or huge scans from monopolizing the actor/CPU.
+        // Stop queries that take too much work.
         sqlite3_progress_handler(database, 100_000, { _ in 1 }, nil)
+        // Read the token and profile from the same database snapshot.
         guard sqlite3_exec(database, "PRAGMA trusted_schema=OFF; PRAGMA query_only=ON; BEGIN;", nil, nil, nil) == SQLITE_OK else {
             throw TrackerError.notSignedIn
         }

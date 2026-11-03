@@ -1,5 +1,5 @@
 #!/bin/bash
-# Explicit distribution workflow. Never uses the local ad-hoc signature for downloads.
+# Require release signing before packaging a download.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${SIGNING_IDENTITY:?Set SIGNING_IDENTITY to your Developer ID Application identity}"
@@ -11,7 +11,7 @@ fi
 swift test
 BUILD_UNIVERSAL=1 bash scripts/build-app.sh
 app="$PWD/dist/Kiro Tracker.app"
-# Build the submission privately. Publish a release archive only after Apple accepts it.
+# Keep the archive temporary until notarization succeeds.
 staging=$(mktemp -d "$PWD/dist/.notarize.XXXXXX")
 trap 'rm -rf "$staging"' EXIT
 ditto -c -k --keepParent "$app" "$staging/submission.zip"

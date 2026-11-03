@@ -1,14 +1,13 @@
 import Foundation
 
 enum DatabaseLocation {
-    /// Explicit flag > environment override > the current user's standard macOS location.
-    /// Invalid overrides fail closed rather than accidentally reading a different account.
     static func resolve(
         arguments: [String] = CommandLine.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         applicationSupportURL: URL? = nil,
         homeURL: URL = FileManager.default.homeDirectoryForCurrentUser
     ) throws -> URL {
+        // Prefer the command line path over the environment setting.
         let flags = arguments.indices.filter { arguments[$0] == "--database" }
         guard flags.count <= 1 else { throw TrackerError.invalidDatabasePath }
         let override: String?
@@ -18,6 +17,7 @@ enum DatabaseLocation {
         } else {
             override = environment["KIRO_TRACKER_DATABASE_PATH"]
         }
+        // Reject a bad custom path instead of using another account.
         if let override {
             guard !override.isEmpty, override.utf8.count <= 4096,
                   !override.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
@@ -29,6 +29,7 @@ enum DatabaseLocation {
             guard override.hasPrefix("/") else { throw TrackerError.invalidDatabasePath }
             return URL(fileURLWithPath: override).standardizedFileURL
         }
+        // Ask macOS for the current user application support folder.
         guard let support = applicationSupportURL ?? FileManager.default.urls(
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first else { throw TrackerError.notSignedIn }

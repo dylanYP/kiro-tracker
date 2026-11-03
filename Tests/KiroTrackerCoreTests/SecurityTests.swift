@@ -33,7 +33,7 @@ private let testARN = "arn:aws:codewhisperer:us-east-1:123456789012:profile/test
     let session = URLSession(configuration: .ephemeral)
     defer { session.invalidateAndCancel() }
     let original = URL(string: "https://codewhisperer.us-east-1.amazonaws.com/")!
-    let task = session.dataTask(with: original) // Never resumed; no network traffic.
+    let task = session.dataTask(with: original) // This task is never started.
     for destination in ["https://attacker.invalid/", "http://codewhisperer.us-east-1.amazonaws.com/", original.absoluteString] {
         let refused = await withCheckedContinuation { continuation in
             RejectRedirects().urlSession(session, task: task,
@@ -141,7 +141,7 @@ private func withDatabase(_ body: (URL, OpaquePointer) throws -> Void) throws {
         #expect(throws: (any Error).self) { try CredentialStore.read(from: url) }
     }
     try withDatabase { url, db in
-        // A forged schema must not keep the process in an unbounded recursive query.
+        // Check that a recursive query is stopped before it can run indefinitely.
         #expect(sqlite3_exec(db, "CREATE VIEW auth_kv AS WITH RECURSIVE n(x) AS (VALUES(0) UNION ALL SELECT x+1 FROM n WHERE x<1000000000) SELECT 'kirocli:odic:token' AS key, sum(x) AS value FROM n;", nil, nil, nil) == SQLITE_OK)
         #expect(throws: (any Error).self) { try CredentialStore.read(from: url) }
     }

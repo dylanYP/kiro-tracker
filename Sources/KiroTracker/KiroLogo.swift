@@ -1,7 +1,6 @@
 import AppKit
 
-// Kiro mark from CrossUsage plugins/kiro/icon.svg; see THIRD_PARTY_NOTICES.txt.
-// Vector paths keep the template crisp at every menu-bar display scale.
+// Logo paths come from CrossUsage and are credited in THIRD_PARTY_NOTICES.txt.
 @MainActor
 enum KiroLogo {
     static func image() -> NSImage {
@@ -77,6 +76,7 @@ enum KiroLogo {
             path2.fill()
             return true
         }
+        // Let macOS choose the logo color for the menu bar.
         image.isTemplate = true
         image.accessibilityDescription = "Kiro"
         return image

@@ -43,10 +43,10 @@ If Apple's developer tools are missing, install them with `xcode-select --instal
 
 ### 1. Clone the repository or your fork
 
-Replace `OWNER` with the repository owner's account, or your own account if you created a fork. The URL below is a placeholder, not a published repository address.
+Clone this repository, or substitute the URL of your own fork:
 
 ```sh
-git clone https://github.com/OWNER/kiro-tracker.git
+git clone https://github.com/dylanYP/kiro-tracker.git
 cd kiro-tracker
 ```
 
