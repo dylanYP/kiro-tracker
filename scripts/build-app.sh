@@ -19,7 +19,7 @@ app="$staging/Kiro Tracker.app"
 mkdir -p "$app/Contents/MacOS"
 mkdir -p "$app/Contents/Resources"
 # Include the logo license from its source header.
-awk '/^import AppKit/ { exit } { sub(/^[/][/][ ]?/, ""); print }' \
+awk '/^import AppKit/ { exit } { print substr($0, 4) }' \
     Sources/KiroTracker/KiroLogo.swift > "$app/Contents/Resources/KiroLogoLicense.txt"
 cp "$binary_directory/KiroTracker" "$app/Contents/MacOS/KiroTracker"
 cat > "$app/Contents/Info.plist" <<'PLIST'
