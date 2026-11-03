@@ -18,7 +18,9 @@ trap 'rm -rf "$staging"' EXIT
 app="$staging/Kiro Tracker.app"
 mkdir -p "$app/Contents/MacOS"
 mkdir -p "$app/Contents/Resources"
-cp THIRD_PARTY_NOTICES.txt "$app/Contents/Resources/"
+# Include the logo license from its source header.
+awk '/^import AppKit/ { exit } { sub(/^[/][/][ ]?/, ""); print }' \
+    Sources/KiroTracker/KiroLogo.swift > "$app/Contents/Resources/KiroLogoLicense.txt"
 cp "$binary_directory/KiroTracker" "$app/Contents/MacOS/KiroTracker"
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
