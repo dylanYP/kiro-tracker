@@ -1,73 +1,40 @@
 import Foundation
-import SQLite3
 
 public actor KiroClient {
-    private let databaseURL: URL
-    private let session: URLSession
+    private let databaseURL: URL?
+    private let transport: UsageTransport
 
     public init(databaseURL: URL? = nil) {
-        self.databaseURL = databaseURL ?? FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/kiro-cli/data.sqlite3")
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 25
-        configuration.urlCache = nil
-        self.session = URLSession(configuration: configuration)
+        self.databaseURL = databaseURL
+        self.transport = UsageTransport()
     }
 
     public func fetch() async throws -> UsageSnapshot {
+        try Task.checkCancellation()
         // Re-read each time so the CLI remains the sole owner of login and token renewal.
-        let credentials = try readCredentials()
-        let arnParts = credentials.profile.arn.split(separator: ":", omittingEmptySubsequences: false)
-        guard arnParts.count >= 6, arnParts[0] == "arn", arnParts[1] == "aws",
-              arnParts[2] == "codewhisperer" else { throw TrackerError.unsupportedRegion }
-        let endpoint: String
-        switch arnParts[3] {
-        case "us-east-1": endpoint = "https://codewhisperer.us-east-1.amazonaws.com/"
-        case "eu-central-1": endpoint = "https://q.eu-central-1.amazonaws.com/"
-        default: throw TrackerError.unsupportedRegion
-        }
+        let credentials = try CredentialStore.read(from: databaseURL ?? DatabaseLocation.resolve())
+        let request = try Self.request(token: credentials.accessToken, profileARN: credentials.profileARN)
+        return try UsageSnapshot.decode(await transport.fetch(request))
+    }
+
+    static func request(token: String, profileARN: String) throws -> URLRequest {
+        // No user-controlled hostname, port, path, or URL is accepted.
+        guard profileARN.utf8.count <= 256,
+              profileARN.range(of: #"\Aarn:aws:codewhisperer:(us-east-1|eu-central-1):[0-9]{12}:profile/[A-Za-z0-9_-]{1,128}\z"#,
+                               options: .regularExpression) != nil else { throw TrackerError.unsupportedRegion }
+        guard !token.isEmpty, token.utf8.count <= 16_384,
+              token.utf8.allSatisfy({ (33...126).contains($0) }) else { throw TrackerError.notSignedIn }
+        let region = profileARN.split(separator: ":")[3]
+        let endpoint = region == "us-east-1"
+            ? "https://codewhisperer.us-east-1.amazonaws.com/"
+            : "https://q.eu-central-1.amazonaws.com/"
         var request = URLRequest(url: URL(string: endpoint)!)
         request.httpMethod = "POST"
-        request.setValue("Bearer \(credentials.token.access_token)", forHTTPHeaderField: "Authorization")
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/x-amz-json-1.0", forHTTPHeaderField: "Content-Type")
         request.setValue("AmazonCodeWhispererService.GetUsageLimits", forHTTPHeaderField: "X-Amz-Target")
         request.setValue("KiroTracker/1.0", forHTTPHeaderField: "User-Agent")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["profileArn": credentials.profile.arn])
-        let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse else { throw TrackerError.invalidUsage }
-        if response.statusCode == 401 || response.statusCode == 403 { throw TrackerError.sessionExpired }
-        guard (200..<300).contains(response.statusCode) else { throw TrackerError.server(response.statusCode) }
-        return try UsageSnapshot.decode(data)
-    }
-
-    private struct Token: Decodable { let access_token: String }
-    private struct Profile: Decodable { let arn: String }
-
-    private func readCredentials() throws -> (token: Token, profile: Profile) {
-        var database: OpaquePointer?
-        guard sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            if let database { sqlite3_close(database) }
-            throw TrackerError.notSignedIn
-        }
-        defer { sqlite3_close(database) }
-        sqlite3_busy_timeout(database, 1000)
-        func read(_ sql: String) throws -> Data {
-            var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(database, sql, -1, &statement, nil) == SQLITE_OK else {
-                throw TrackerError.notSignedIn
-            }
-            defer { sqlite3_finalize(statement) }
-            guard sqlite3_step(statement) == SQLITE_ROW,
-                  let bytes = sqlite3_column_blob(statement, 0) else { throw TrackerError.notSignedIn }
-            return Data(bytes: bytes, count: Int(sqlite3_column_bytes(statement, 0)))
-        }
-        do {
-            let decoder = JSONDecoder()
-            let token = try decoder.decode(Token.self, from: read("SELECT value FROM auth_kv WHERE key = 'kirocli:odic:token'"))
-            let profile = try decoder.decode(Profile.self, from: read("SELECT value FROM state WHERE key = 'api.codewhisperer.profile'"))
-            guard !token.access_token.isEmpty else { throw TrackerError.notSignedIn }
-            return (token, profile)
-        } catch { throw TrackerError.notSignedIn }
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["profileArn": profileARN])
+        return request
     }
 }

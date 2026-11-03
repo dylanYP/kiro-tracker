@@ -88,16 +88,14 @@ struct TrackerView: View {
             Divider()
             HStack {
                 if let usage = model.snapshot {
-                    TimelineView(.periodic(from: .now, by: 30)) { _ in
-                        Text(usage.fetchedAt, style: .relative) + Text(" ago")
-                    }
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    Text("Updated \(usage.fetchedAt.formatted(date: .omitted, time: .shortened))")
+                        .font(.system(size: 10)).foregroundStyle(.tertiary)
                 }
                 Spacer(minLength: 8)
                 Button { Task { await model.refresh() } } label: {
                     Image(systemName: "arrow.clockwise").padding(4).contentShape(Rectangle())
                 }
-                .disabled(model.refreshing).help("Refresh usage")
+                .disabled(model.refreshing).help("Refresh usage (at most once every 15 seconds)")
                 .accessibilityLabel("Refresh usage")
                 Button { NSApplication.shared.terminate(nil) } label: {
                     Image(systemName: "power").padding(4).contentShape(Rectangle())

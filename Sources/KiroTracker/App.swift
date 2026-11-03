@@ -9,15 +9,22 @@ final class TrackerModel: ObservableObject {
     @Published var refreshing = false
     var onChange: (() -> Void)?
     private let client = KiroClient()
+    private var refreshGate = RefreshGate()
 
     func refresh() async {
-        guard !refreshing else { return }
+        guard !refreshing, refreshGate.begin() else { return }
         refreshing = true
         defer { refreshing = false; onChange?() }
         do {
             snapshot = try await client.fetch()
             error = nil
         } catch {
+            if let failure = error as? TrackerError {
+                switch failure {
+                case .notSignedIn, .sessionExpired, .unsupportedRegion, .invalidDatabasePath: snapshot = nil
+                default: break
+                }
+            }
             self.error = (error as? TrackerError)?.localizedDescription
                 ?? "Couldn’t reach Kiro. Check your connection and try again."
         }
@@ -25,7 +32,7 @@ final class TrackerModel: ObservableObject {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     let model = TrackerModel()
     private var item: NSStatusItem!
     private let popover = NSPopover()
@@ -41,16 +48,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         item.button?.target = self
         item.button?.action = #selector(togglePopover)
         popover.behavior = .transient
+        popover.delegate = self
         // AppKit's animation ends at its default placement, which is lower than
         // our menu-bar anchor. Present and align synchronously before drawing.
         popover.animates = false
-        popover.contentViewController = NSHostingController(rootView: TrackerView(model: model))
         model.onChange = { [weak self] in self?.updateStatus() }
         updateStatus()
         polling = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.model.refresh()
-                try? await Task.sleep(for: .seconds(300))
+                do { try await Task.sleep(for: .seconds(300), tolerance: .seconds(30)) }
+                catch { return }
             }
         }
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -74,6 +82,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     let anchor = statusWindow.convertToScreen(button.convert(button.bounds, to: nil))
                     print("Menu anchor: \(anchor); dropdown: \(window.frame); gap: \(anchor.minY - window.frame.maxY)pt")
                 }
+                popover.performClose(nil)
+                print("Closed dropdown released its view: \(popover.contentViewController == nil)")
+                assert(popover.contentViewController == nil)
                 NSApp.terminate(nil)
             }
         }
@@ -97,11 +108,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func togglePopover() {
         if popover.isShown { popover.performClose(nil); return }
         guard let button = item.button else { return }
+        popover.contentViewController = NSHostingController(rootView: TrackerView(model: model))
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         alignPopover()
         // Opening the panel rechecks usage; never starts another request while one is running.
         Task { await model.refresh() }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        // Release the SwiftUI tree; hidden UI must not keep timers or animations alive.
+        popover.contentViewController = nil
     }
 
     private func alignPopover() {
@@ -122,6 +139,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 enum KiroTrackerMain {
     @MainActor static func main() async {
+        if CommandLine.arguments.contains("--help") {
+            print("""
+            Kiro Tracker — native macOS menu-bar usage tracker
+              --check           Fetch usage once and exit without opening the GUI
+              --database PATH   Use a custom Kiro CLI SQLite database (read-only)
+              --help            Show this help
+            Database precedence: --database, KIRO_TRACKER_DATABASE_PATH, then the
+            current user's standard Application Support/kiro-cli/data.sqlite3.
+            """)
+            return
+        }
         #if DEBUG
         if CommandLine.arguments.contains("--render-previews") {
             _ = NSApplication.shared
@@ -148,7 +176,8 @@ enum KiroTrackerMain {
 
     #if DEBUG
     @MainActor private static func renderPreviews() throws {
-        let folder = URL(fileURLWithPath: "/tmp/kiro-tracker-previews", isDirectory: true)
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent("kiro-tracker-previews-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         for (name, total, overage) in [("green", 147.27, 0.0), ("yellow", 750.0, 0.0),
                                      ("red", 950.0, 0.0), ("overage", 1250.0, 250.0)] {
