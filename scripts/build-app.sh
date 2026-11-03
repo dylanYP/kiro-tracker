@@ -4,6 +4,8 @@ cd "$(dirname "$0")/.."
 swift build -c release
 app="$PWD/dist/Kiro Tracker.app"
 mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/Resources"
+cp THIRD_PARTY_NOTICES.txt "$app/Contents/Resources/"
 cp .build/release/KiroTracker "$app/Contents/MacOS/KiroTracker"
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
