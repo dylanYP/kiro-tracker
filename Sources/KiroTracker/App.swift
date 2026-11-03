@@ -25,7 +25,7 @@ final class TrackerModel: ObservableObject {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = TrackerModel()
     private var item: NSStatusItem!
     private let popover = NSPopover()
@@ -41,8 +41,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         item.button?.target = self
         item.button?.action = #selector(togglePopover)
         popover.behavior = .transient
-        popover.delegate = self
-        popover.animates = true
+        // AppKit's animation ends at its default placement, which is lower than
+        // our menu-bar anchor. Present and align synchronously before drawing.
+        popover.animates = false
         popover.contentViewController = NSHostingController(rootView: TrackerView(model: model))
         model.onChange = { [weak self] in self?.updateStatus() }
         updateStatus()
@@ -62,6 +63,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             Task {
                 try? await Task.sleep(for: .seconds(2))
                 togglePopover()
+                if let button = item.button, let statusWindow = button.window,
+                   let window = popover.contentViewController?.view.window {
+                    let anchor = statusWindow.convertToScreen(button.convert(button.bounds, to: nil))
+                    print("Immediate opening gap: \(anchor.minY - window.frame.maxY)pt")
+                }
                 try? await Task.sleep(for: .seconds(1))
                 if let button = item.button, let statusWindow = button.window,
                    let window = popover.contentViewController?.view.window {
@@ -93,11 +99,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard let button = item.button else { return }
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        alignPopover()
         // Opening the panel rechecks usage; never starts another request while one is running.
         Task { await model.refresh() }
     }
-
-    func popoverDidShow(_ notification: Notification) { alignPopover() }
 
     private func alignPopover() {
         guard let button = item.button, let statusWindow = button.window,
